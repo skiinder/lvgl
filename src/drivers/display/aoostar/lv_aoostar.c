@@ -12,7 +12,9 @@
 
 #if LV_USE_AOOSTAR
 
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,6 +57,8 @@ static const uint8_t aoostar_frame_end[8] = {
 };
 
 /* ── write_all: 处理部分写入 ── */
+static int write_total_bytes = 0;
+
 static void write_all(int fd, const void *data, size_t len) {
     const uint8_t *p = (const uint8_t *)data;
     while (len > 0) {
@@ -67,6 +71,7 @@ static void write_all(int fd, const void *data, size_t len) {
         p += n;
         len -= n;
     }
+    write_total_bytes += p - (const uint8_t *)data;
 }
 
 /* ── Driver context ── */
@@ -157,16 +162,24 @@ static void _send_off(aoostar_drv_t * drv)
  *   STATIC FUNCTIONS — LVGL callbacks
  **********************/
 
+static int flush_call_count = 0;
+
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
     aoostar_drv_t * drv = lv_display_get_driver_data(disp);
+    flush_call_count++;
+    fprintf(stderr, "[flush #%d] area=(%d,%d)-(%d,%d) fd=%d\n",
+            flush_call_count, area->x1, area->y1, area->x2, area->y2, drv ? drv->fd : -1);
+
     if (!drv || drv->fd < 0) {
+        fprintf(stderr, "[flush] no driver or no fd\n");
         lv_display_flush_ready(disp);
         return;
     }
 
     uint8_t pkt[AOOSTAR_CHUNK_PACKET_SZ];
     int any_sent = 0;
+    int changed_chunks = 0;
 
     /* Frame start */
     write_all(drv->fd, aoostar_frame_start, sizeof(aoostar_frame_start));
@@ -184,6 +197,8 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_m
             if (memcmp(cur, &drv->prev_frame[off], AOOSTAR_CHUNK_BYTES) == 0)
                 continue;
 
+            changed_chunks++;
+
             /* Encode: sync + cmd + offset + data */
             memcpy(pkt,         aoostar_sync,      4);
             memcpy(pkt + 4,     aoostar_cmd_chunk, 4);
@@ -196,8 +211,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_m
         }
     }
 
+    fprintf(stderr, "[flush] changed=%d chunks\n", changed_chunks);
+
     /* Frame end (always send, even if no chunks changed) */
     write_all(drv->fd, aoostar_frame_end, sizeof(aoostar_frame_end));
+    fprintf(stderr, "[flush] frame end sent\n");
 
     lv_display_flush_ready(disp);
 }
