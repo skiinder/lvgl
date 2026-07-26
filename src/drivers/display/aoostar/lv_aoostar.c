@@ -28,17 +28,14 @@
 #include "../../../misc/lv_types.h"
 #include "../../../misc/lv_log.h"
 
-/* ── Display geometry ── */
 #define AOOSTAR_HOR_RES         960
 #define AOOSTAR_VER_RES         376
 #define AOOSTAR_BPP             2
-#define AOOSTAR_FRAME_BYTES     (AOOSTAR_HOR_RES * AOOSTAR_VER_RES * AOOSTAR_BPP)  /* 721920 */
+#define AOOSTAR_FRAME_BYTES     (AOOSTAR_HOR_RES * AOOSTAR_VER_RES * AOOSTAR_BPP)
 #define AOOSTAR_CHUNK_BYTES     48
-#define AOOSTAR_CHUNKS_PER_ROW  (AOOSTAR_HOR_RES * AOOSTAR_BPP / AOOSTAR_CHUNK_BYTES)  /* 40 */
-#define AOOSTAR_TOTAL_CHUNKS    (AOOSTAR_VER_RES * AOOSTAR_CHUNKS_PER_ROW)             /* 15040 */
-
-/* ── Protocol ── */
-#define AOOSTAR_CHUNK_PACKET_SZ (4 + 4 + 4 + AOOSTAR_CHUNK_BYTES)  /* 60 */
+#define AOOSTAR_CHUNKS_PER_ROW  (AOOSTAR_HOR_RES * AOOSTAR_BPP / AOOSTAR_CHUNK_BYTES)
+#define AOOSTAR_TOTAL_CHUNKS    (AOOSTAR_VER_RES * AOOSTAR_CHUNKS_PER_ROW)
+#define AOOSTAR_CHUNK_PACKET_SZ (4 + 4 + 4 + AOOSTAR_CHUNK_BYTES)
 
 static const uint8_t aoostar_sync[4]      = {0xAA, 0x55, 0xAA, 0x55};
 static const uint8_t aoostar_cmd_on[4]    = {0x0B, 0x00, 0x00, 0x00};
@@ -56,9 +53,6 @@ static const uint8_t aoostar_frame_end[8] = {
     0x06, 0x00, 0x00, 0x00,
 };
 
-/* ── write_all: 处理部分写入 ── */
-static int write_total_bytes = 0;
-
 static void write_all(int fd, const void *data, size_t len) {
     const uint8_t *p = (const uint8_t *)data;
     while (len > 0) {
@@ -71,28 +65,19 @@ static void write_all(int fd, const void *data, size_t len) {
         p += n;
         len -= n;
     }
-    write_total_bytes += p - (const uint8_t *)data;
 }
 
-/* ── Driver context ── */
 typedef struct {
-    int       fd;           /* serial port fd, -1 if not open */
-    uint8_t * prev_frame;   /* previous frame for diff cache */
+    int       fd;
+    uint8_t * prev_frame;
 } aoostar_drv_t;
 
-/**********************
- *  STATIC PROTOTYPES
- **********************/
 static int  _serial_open(const char * device);
 static void _serial_close(aoostar_drv_t * drv);
 static void _send_on(aoostar_drv_t * drv);
 static void _send_off(aoostar_drv_t * drv);
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map);
 static void del_event_cb(lv_event_t * e);
-
-/**********************
- *   STATIC FUNCTIONS — Serial
- **********************/
 
 static int _serial_open(const char * device)
 {
@@ -158,33 +143,18 @@ static void _send_off(aoostar_drv_t * drv)
     write_all(drv->fd, buf, 8);
 }
 
-/**********************
- *   STATIC FUNCTIONS — LVGL callbacks
- **********************/
-
-static int flush_call_count = 0;
-
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
     aoostar_drv_t * drv = lv_display_get_driver_data(disp);
-    flush_call_count++;
-    fprintf(stderr, "[flush #%d] area=(%d,%d)-(%d,%d) fd=%d\n",
-            flush_call_count, area->x1, area->y1, area->x2, area->y2, drv ? drv->fd : -1);
-
     if (!drv || drv->fd < 0) {
-        fprintf(stderr, "[flush] no driver or no fd\n");
         lv_display_flush_ready(disp);
         return;
     }
 
     uint8_t pkt[AOOSTAR_CHUNK_PACKET_SZ];
-    int any_sent = 0;
-    int changed_chunks = 0;
 
-    /* Frame start */
     write_all(drv->fd, aoostar_frame_start, sizeof(aoostar_frame_start));
 
-    /* Walk dirty rows */
     for (int32_t y = area->y1; y <= area->y2; y++) {
         uint32_t cs = (uint32_t)y * AOOSTAR_CHUNKS_PER_ROW + (area->x1 / 24);
         uint32_t ce = (uint32_t)y * AOOSTAR_CHUNKS_PER_ROW + ((area->x2 * 2 + 1) / AOOSTAR_CHUNK_BYTES);
@@ -193,13 +163,9 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_m
             uint32_t off = ci * AOOSTAR_CHUNK_BYTES;
             uint8_t * cur = (uint8_t *)&px_map[off];
 
-            /* Skip unchanged chunks */
             if (memcmp(cur, &drv->prev_frame[off], AOOSTAR_CHUNK_BYTES) == 0)
                 continue;
 
-            changed_chunks++;
-
-            /* Encode: sync + cmd + offset + data */
             memcpy(pkt,         aoostar_sync,      4);
             memcpy(pkt + 4,     aoostar_cmd_chunk, 4);
             *(uint32_t *)(pkt + 8) = off;
@@ -207,16 +173,10 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_m
 
             write_all(drv->fd, pkt, AOOSTAR_CHUNK_PACKET_SZ);
             memcpy(&drv->prev_frame[off], cur, AOOSTAR_CHUNK_BYTES);
-            any_sent = 1;
         }
     }
 
-    fprintf(stderr, "[flush] changed=%d chunks\n", changed_chunks);
-
-    /* Frame end (always send, even if no chunks changed) */
     write_all(drv->fd, aoostar_frame_end, sizeof(aoostar_frame_end));
-    fprintf(stderr, "[flush] frame end sent\n");
-
     lv_display_flush_ready(disp);
 }
 
@@ -235,10 +195,6 @@ static void del_event_cb(lv_event_t * e)
     lv_free(drv);
     lv_display_set_driver_data(disp, NULL);
 }
-
-/**********************
- *   GLOBAL FUNCTIONS
- **********************/
 
 lv_display_t * lv_aoostar_create(void)
 {
@@ -281,7 +237,6 @@ lv_display_t * lv_aoostar_create(void)
 
     if (drv->fd >= 0) {
         _send_on(drv);
-        /* Initial black frame */
         lv_area_t full = {0, 0, AOOSTAR_HOR_RES - 1, AOOSTAR_VER_RES - 1};
         flush_cb(disp, &full, buf1);
     }
