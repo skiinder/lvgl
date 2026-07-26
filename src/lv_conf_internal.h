@@ -4167,6 +4167,15 @@
         #ifdef LV_KCONFIG_PRESENT
             #ifdef CONFIG_LV_LINUX_FBDEV_MMAP
                 #define LV_LINUX_FBDEV_MMAP CONFIG_LV_LINUX_FBDEV_MMAP
+
+/** Driver for AOOSTAR USB secondary screen (GEM12 / WTR MAX) */
+#ifndef LV_USE_AOOSTAR
+    #ifdef CONFIG_LV_USE_AOOSTAR
+        #define LV_USE_AOOSTAR CONFIG_LV_USE_AOOSTAR
+    #else
+        #define LV_USE_AOOSTAR              0
+    #endif
+#endif
             #else
                 #define LV_LINUX_FBDEV_MMAP 0
             #endif

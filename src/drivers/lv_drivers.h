@@ -38,6 +38,8 @@ extern "C" {
 #include "display/ft81x/lv_ft81x.h"
 
 #include "draw/eve/lv_draw_eve_display.h"
+
+#include "display/aoostar/lv_aoostar.h"
 #include "draw/eve/lv_draw_eve_display_defines.h"
 
 #include "nuttx/lv_nuttx_entry.h"
