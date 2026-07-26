@@ -296,40 +296,20 @@ static void del_event_cb(lv_event_t * e)
 
 lv_display_t * lv_aoostar_create(void)
 {
-    /* Allocate driver context */
     aoostar_drv_t * drv = lv_malloc_zeroed(sizeof(aoostar_drv_t));
-    if(!drv) {
-        LV_LOG_ERROR("Out of memory");
-        return NULL;
-    }
+    if(!drv) { LV_LOG_ERROR("OOM: drv"); return NULL; }
     drv->fd = -1;
 
-    /* Frame cache for diff */
     drv->prev_frame = lv_malloc(AOOSTAR_FRAME_BYTES);
-    if(!drv->prev_frame) {
-        LV_LOG_ERROR("OOM: prev_frame (%d)", AOOSTAR_FRAME_BYTES);
-        lv_free(drv);
-        return NULL;
-    }
+    if(!drv->prev_frame) { LV_LOG_ERROR("OOM: prev"); lv_free(drv); return NULL; }
     memset(drv->prev_frame, 0, AOOSTAR_FRAME_BYTES);
 
-    /* DMA buffer */
     drv->dma_buf_size = AOOSTAR_DMA_BUF_SIZE;
     drv->dma_buf = lv_malloc(drv->dma_buf_size);
-    if(!drv->dma_buf) {
-        LV_LOG_ERROR("OOM: dma_buf (%zu)", drv->dma_buf_size);
-        lv_free(drv->prev_frame);
-        lv_free(drv);
-        return NULL;
-    }
+    if(!drv->dma_buf) { LV_LOG_ERROR("OOM: dma"); lv_free(drv->prev_frame); lv_free(drv); return NULL; }
 
-    /* Auto-detect serial port */
     drv->fd = _serial_open("/dev/ttyACM0");
-    if(drv->fd < 0) {
-        LV_LOG_WARN("No AOOSTAR display found on /dev/ttyACM0");
-    }
 
-    /* Create LVGL display */
     lv_display_t * disp = lv_display_create(AOOSTAR_HOR_RES, AOOSTAR_VER_RES);
     if(!disp) {
         LV_LOG_ERROR("lv_display_create failed");
@@ -340,31 +320,24 @@ lv_display_t * lv_aoostar_create(void)
         return NULL;
     }
 
-    /* Attach driver */
     lv_display_set_driver_data(disp, drv);
     lv_display_set_flush_cb(disp, flush_cb);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_add_event_cb(disp, del_event_cb, LV_EVENT_DELETE, NULL);
 
-    /* Draw buffers: 2 × full-screen for DIRECT mode */
     uint32_t buf_size = AOOSTAR_FRAME_BYTES;
     uint8_t * buf1 = lv_malloc(buf_size);
     uint8_t * buf2 = lv_malloc(buf_size);
     if(!buf1 || !buf2) {
-        LV_LOG_ERROR("OOM: draw buffers");
-        lv_free(buf1);
-        lv_free(buf2);
+        LV_LOG_ERROR("OOM: draw bufs");
+        lv_free(buf1); lv_free(buf2);
         lv_display_delete(disp);
         return NULL;
     }
     lv_display_set_buffers(disp, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_DIRECT);
 
-    LV_LOG_INFO("AOOSTAR %dx%d RGB565 @%d baud", AOOSTAR_HOR_RES, AOOSTAR_VER_RES, AOOSTAR_BAUDRATE);
-
     if(drv->fd >= 0) {
         _send_on(drv);
-
-        /* Black frame to clear */
         lv_area_t full = {0, 0, AOOSTAR_HOR_RES - 1, AOOSTAR_VER_RES - 1};
         lv_memset(buf1, 0, buf_size);
         size_t len = _build_dma_buf(drv, &full, buf1);
