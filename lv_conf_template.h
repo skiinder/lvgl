@@ -1305,6 +1305,9 @@
     #define LV_LINUX_FBDEV_MMAP          1
 #endif
 
+/** Driver for AOOSTAR USB secondary screen (GEM12 / WTR MAX) */
+#define LV_USE_AOOSTAR          0
+
 /** Use Nuttx to open window and handle touchscreen */
 #define LV_USE_NUTTX    0
 

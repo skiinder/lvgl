@@ -2038,6 +2038,10 @@ menu "LVGL configuration"
 			depends on LV_USE_LINUX_FBDEV
 			default y
 
+		config LV_USE_AOOSTAR
+			bool "Use AOOSTAR USB secondary screen (GEM12 / WTR MAX)"
+			default n
+
 		config LV_USE_NUTTX
 			bool "Use Nuttx to open window and handle touchscreen"
 			default n
