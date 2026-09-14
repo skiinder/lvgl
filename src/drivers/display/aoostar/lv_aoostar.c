@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <termios.h>
+#include <poll.h>
 
 #include "../../../display/lv_display_private.h"
 #include "../../../misc/lv_types.h"
@@ -53,12 +54,27 @@ static const uint8_t aoostar_frame_end[8] = {
     0x06, 0x00, 0x00, 0x00,
 };
 
+static int _wait_writable(int fd)
+{
+    struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+    int r;
+    do { r = poll(&pfd, 1, 1000); } while (r < 0 && errno == EINTR);
+    return r > 0 ? 0 : -1;
+}
+
 static void write_all(int fd, const void *data, size_t len) {
     const uint8_t *p = (const uint8_t *)data;
     while (len > 0) {
         ssize_t n = write(fd, p, len);
         if (n < 0) {
-            if (errno == EINTR || errno == EAGAIN) continue;
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (_wait_writable(fd) != 0) {
+                    LV_LOG_ERROR("serial write: poll timeout");
+                    return;
+                }
+                continue;
+            }
             LV_LOG_ERROR("serial write: %s", strerror(errno));
             return;
         }
