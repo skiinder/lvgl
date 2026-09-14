@@ -239,7 +239,7 @@ lv_display_t * lv_aoostar_create(void)
     lv_display_add_event_cb(disp, del_event_cb, LV_EVENT_DELETE, NULL);
 
     uint32_t buf_size = AOOSTAR_FRAME_BYTES;
-    uint8_t * buf1 = lv_malloc(buf_size);
+    uint8_t * buf1 = lv_malloc_zeroed(buf_size);
     uint8_t * buf2 = lv_malloc(buf_size);
     if (!buf1 || !buf2) {
         LV_LOG_ERROR("OOM: draw buffers");
